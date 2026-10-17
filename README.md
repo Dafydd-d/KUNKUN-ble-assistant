@@ -21,6 +21,8 @@ A Windows BLE serial debug tool for transparent UART modules between PC and MCU.
 
 **方式二：源码运行**
 
+需要 Python 3.10 以上（开发环境为 3.12）：
+
 ```bash
 pip install -r requirements.txt
 python ble_serial_assistant.py
@@ -53,9 +55,18 @@ python ble_serial_assistant.py
 ble_serial_assistant.py   界面 (PySide6)
 ble_engine.py             BLE 引擎 (bleak, asyncio 独立线程)
 i18n.py                   中英双语词条
+tests/                    界面回归测试(无头运行, 无需蓝牙)
 启动.bat                   源码启动脚本
 BLE串口助手.spec            PyInstaller 打包配置
 使用说明.md                 详细使用说明
+```
+
+## 测试
+
+回归测试无头运行、不依赖蓝牙硬件，改动代码后跑一遍即可：
+
+```bash
+python tests/ble_chars_test.py
 ```
 
 ## 打包
