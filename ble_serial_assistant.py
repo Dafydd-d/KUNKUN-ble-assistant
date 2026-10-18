@@ -54,7 +54,9 @@ def ui_font(size=10):
 
 def mono_font(size=10):
     f = QtGui.QFont()
-    f.setFamilies(["Consolas", "Courier New", "monospace"])
+    # 末尾几个是缺字回退: 设备发来 emoji/图形符号时不要显示成方框
+    f.setFamilies(["Consolas", "Courier New", "Segoe UI Emoji", "Segoe UI Symbol",
+                   "Microsoft YaHei UI", "monospace"])
     f.setPointSize(size)
     return f
 
@@ -62,6 +64,11 @@ def mono_font(size=10):
 # 接收区行数上限(超出从顶部裁掉旧内容; 完整记录仍保留在内存/日志中)
 RECV_MAX_LINES = 4000
 RECV_TRIM_TO = 3000
+
+# 拼包: 一帧被 BLE 通知拆成多包时合并显示; 静默间隙由界面「拼包」设置,
+# 上限防止持续细流把数据一直扣着不显示
+RX_COALESCE_MAX_BYTES = 1024
+RX_COALESCE_MAX_HOLD = 2.0
 
 # 设备列表清理: 超过该秒数没再广播的设备从列表移除(连接中的保留)
 DEV_STALE_SEC = 10
@@ -74,7 +81,8 @@ THEMES = {
         "TITLE_FG": "#FFFFFF", "VER_FG": "#7FA3B8", "HEADER_BG": "#14314B",
         "INK": "#14314B", "BG": "#E9EDF0", "PANEL": "#FFFFFF", "FG": "#1F2937",
         "ACCENT": "#0E7490", "ACCENT_D": "#0C5D73", "SEL_FG": "#FFFFFF",
-        "MUTED": "#5C6B78", "BORDER": "#C9D3DA",
+        "MUTED": "#5C6B78", "BORDER": "#C9D3DA", "ARROW": "arrow_down.png",
+        "POPUP_SEL_BG": "#CFE6EE", "POPUP_SEL_FG": "#14314B",
         "BTN_BG": "#DFE5EA", "BTN_BG_HOVER": "#CBD6DD",
         "BTN_DIS_BG": "#E8EDF0", "BTN_DIS_FG": "#9AA7B1",
         "SEG_REST_BG": "#D5DEE4", "SEG_REST_FG": "#334552",
@@ -98,7 +106,8 @@ THEMES = {
         "TITLE_FG": "#ECE7D9", "VER_FG": "#7A7466", "HEADER_BG": "#1A1D21",
         "INK": "#ECE7D9", "BG": "#23272C", "PANEL": "#1A1D21", "FG": "#C9C4B6",
         "ACCENT": "#E8B33A", "ACCENT_D": "#D19E2E", "SEL_FG": "#1A1D21",
-        "MUTED": "#9A927F", "BORDER": "#3A3F46",
+        "MUTED": "#9A927F", "BORDER": "#3A3F46", "ARROW": "arrow_down_dark.png",
+        "POPUP_SEL_BG": "#2E4A57", "POPUP_SEL_FG": "#ECE7D9",
         "BTN_BG": "#3A3F46", "BTN_BG_HOVER": "#4A5058",
         "BTN_DIS_BG": "#2F343A", "BTN_DIS_FG": "#6A6458",
         "SEG_REST_BG": "#2A2E34", "SEG_REST_FG": "#B0A894",
@@ -123,6 +132,7 @@ THEMES = {
 
 def build_qss(t):
     """由令牌生成整套样式表; 结构只此一份, 两套主题换色不换骨。"""
+    arrow = resource_path(t.get("ARROW", "arrow_down.png")).replace("\\", "/")
     return """
 QWidget {{ background: {BG}; color: {FG}; }}
 QMainWindow::separator {{ background: {BORDER}; }}
@@ -161,15 +171,26 @@ QPushButton#connBtn:hover {{ background: {ACCENT_D}; }}
 QPushButton#connBtn:disabled {{ background: {BTN_DIS_BG}; color: {BTN_DIS_FG}; }}
 
 /* ---- 表单控件 ---- */
-QLineEdit, QComboBox, QPlainTextEdit#sendText, QTextEdit#sendText {{
+QLineEdit, QPlainTextEdit#sendText, QTextEdit#sendText {{
     background: {PANEL}; color: {FG}; border: 1px solid {BORDER};
     border-radius: 3px; padding: 3px 6px; selection-background-color: {ACCENT};
     selection-color: {SEL_FG}; }}
+/* 下拉都是非编辑型, selection-* 只作用于弹出列表的选中行(浅色高亮);
+   注意: 此处纵向 padding 会泄漏进弹层容器几何(顶出白条), 只能给 1px */
+QComboBox {{
+    background: {PANEL}; color: {FG}; border: 1px solid {BORDER};
+    border-radius: 3px; padding: 1px 6px;
+    selection-background-color: {POPUP_SEL_BG}; selection-color: {POPUP_SEL_FG}; }}
 QLineEdit:focus, QComboBox:focus, QTextEdit#sendText:focus {{ border: 1px solid {ACCENT}; }}
-QComboBox::drop-down {{ border: none; width: 20px; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox::down-arrow {{ image: url({ARROW}); width: 10px; height: 7px; }}
 QComboBox QAbstractItemView {{ background: {PANEL}; color: {FG};
-                               selection-background-color: {ACCENT};
-                               selection-color: {SEL_FG}; border: 1px solid {BORDER}; }}
+                               border: 1px solid {BORDER}; outline: none;
+                               selection-background-color: {POPUP_SEL_BG};
+                               selection-color: {POPUP_SEL_FG}; }}
+/* 弹层外层容器自带双线边框/空隙, 去掉让列表像系统下拉一样干净 */
+QComboBoxPrivateContainer {{ border: none; background: {PANEL}; margin: 0; padding: 0; }}
+QComboBox QFrame {{ border: none; background: {PANEL}; margin: 0; padding: 0; }}
 
 /* ---- 按钮 ---- */
 QPushButton {{ background: {BTN_BG}; color: {FG}; border: none;
@@ -242,12 +263,80 @@ QMenuBar::item:selected {{ background: {BTN_BG_HOVER}; }}
 QMenu {{ background: {PANEL}; color: {FG}; border: 1px solid {BORDER}; }}
 QMenu::item:selected {{ background: {ACCENT}; color: {SEL_FG}; }}
 QToolTip {{ background: {PANEL}; color: {FG}; border: 1px solid {BORDER}; }}
-""".format(**t)
+""".format(**{**t, "ARROW": arrow})
 
 
 # ---------------------------------------------------------------------------
 # 小部件
 # ---------------------------------------------------------------------------
+class AnchoredCombo(QtWidgets.QComboBox):
+    """下拉弹层锚定: 当前选中项永远是列表首行, 列表贴框向下展开。
+
+    选项不出现在当前选择的上方——打开时把当前项转到首行
+    (其余选项按原序循环跟随), 弹层左上角对齐到框的左上角。"""
+
+    def showPopup(self):
+        self._move_current_to_top()
+        super().showPopup()
+        cont = self.view().parentWidget()
+        if cont is not None:
+            cont.move(self.mapToGlobal(QtCore.QPoint(0, 0)))
+
+    def _move_current_to_top(self):
+        idx, n = self.currentIndex(), self.count()
+        if idx <= 0 or n <= 1:
+            return
+        items = [(self.itemText(i), self.itemData(i)) for i in range(n)]
+        self.blockSignals(True)
+        try:
+            self.clear()
+            for text, data in items[idx:] + items[:idx]:
+                self.addItem(text, data)
+            self.setCurrentIndex(0)
+        finally:
+            self.blockSignals(False)
+
+
+class PopupItemDelegate(QtWidgets.QStyledItemDelegate):
+    """下拉弹层条目: 8pt 小字号 + 紧凑行高, 贴近系统下拉列表观感。
+
+    条目级 QSS(::item)在当前 Qt 上不生效, 行高/字号只能在委托里控制。"""
+
+    @staticmethod
+    def _font(option):
+        f = QtGui.QFont(option.font)
+        f.setPointSize(8)
+        return f
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        option.displayAlignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
+        option.font = self._font(option)
+
+    def sizeHint(self, option, index):
+        s = super().sizeHint(option, index)
+        s.setHeight(max(22, QtGui.QFontMetrics(self._font(option)).height() + 6))
+        return s
+
+
+def apply_popup_style(cb):
+    cb.setItemDelegate(PopupItemDelegate(cb))
+    view = cb.view()
+    view.setUniformItemSizes(True)
+    f = QtGui.QFont(view.font())
+    f.setPointSize(8)
+    view.setFont(f)
+    # 弹层外层容器自带双线边框和空隙(QSS 改不动), 直接清掉
+    cont = view.parentWidget()
+    if isinstance(cont, QtWidgets.QFrame):
+        cont.setFrameShape(QtWidgets.QFrame.NoFrame)
+        cont.setContentsMargins(0, 0, 0, 0)
+        lay = cont.layout()
+        if lay is not None:
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(0)
+
+
 class EventBridge(QtCore.QObject):
     """引擎线程 -> Qt 主线程的事件桥(信号跨线程自动排队)。"""
     got = QtCore.Signal(object)
@@ -619,6 +708,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.receive_lines = []
         self.recv_tags = []
         self._pending_lines = []
+        self._rx_buf = bytearray()      # 拼包缓冲: 静默间隙内的包合并为一帧
+        self._rx_buf_ts = None          # 缓冲首字节到达时刻(帧时间戳)
         self._status_dirty = False
         self._pending_devices = {}      # address -> {"name", "rssi"} 广播合并
         self.devices = {}               # address -> {"name", "rssi"}
@@ -659,6 +750,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._t_log = QtCore.QTimer(self)
         self._t_log.timeout.connect(self._flush_log)
         self._t_log.start(1000)
+        self._t_rx_flush = QtCore.QTimer(self)   # 拼包静默窗口, 到点合并显示
+        self._t_rx_flush.setSingleShot(True)
+        self._t_rx_flush.timeout.connect(self._flush_rx_frame)
 
         # 启动即持续扫描
         QtCore.QTimer.singleShot(300, self._start_scan)
@@ -788,8 +882,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self._save_config()
 
     def _retranslate_line_combo(self):
-        for i, (zh, _data) in enumerate(self._line_opts):
-            self.cb_line.setItemText(i, tr(zh))
+        # 按数据定位(弹层旋转后条目位置会变)
+        for zh, data in self._line_opts:
+            i = self.cb_line.findData(data)
+            if i >= 0:
+                self.cb_line.setItemText(i, tr(zh))
+
+    def _retranslate_rx_enc_combo(self):
+        for zh, data in self._rx_enc_opts:
+            i = self.cb_rx_enc.findData(data)
+            if i >= 0:
+                self.cb_rx_enc.setItemText(i, tr(zh))
 
     def _retranslate_periodic_btn(self):
         self.btn_periodic.setText(
@@ -851,8 +954,9 @@ class MainWindow(QtWidgets.QMainWindow):
             lab.setMinimumWidth(32)
             self._reg(lambda: lab.setText(tr(label_zh)))
             row.addWidget(lab)
-            cb = QtWidgets.QComboBox()
+            cb = AnchoredCombo()
             cb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            apply_popup_style(cb)
             row.addWidget(cb)
             return row, cb
 
@@ -1001,20 +1105,49 @@ class MainWindow(QtWidgets.QMainWindow):
         lab.setObjectName("secHint")
         self._reg(lambda l=lab: l.setText(tr("编码")))
         opt1.addWidget(lab)
-        self.cb_encoding = QtWidgets.QComboBox()
+        self.cb_encoding = AnchoredCombo()
         self.cb_encoding.addItems(["utf-8", "gbk"])
+        apply_popup_style(self.cb_encoding)
         opt1.addWidget(self.cb_encoding)
         lab = QtWidgets.QLabel(tr("行尾"))
         lab.setObjectName("secHint")
         self._reg(lambda l=lab: l.setText(tr("行尾")))
         opt1.addWidget(lab)
-        self.cb_line = QtWidgets.QComboBox()
+        self.cb_line = AnchoredCombo()
         # (显示词条, 真实行尾字节): 显示随语言变, 数据不变
         self._line_opts = [("无", ""), ("\\r", "\r"), ("\\n", "\n"), ("\\r\\n", "\r\n")]
         for zh, data in self._line_opts:
             self.cb_line.addItem(tr(zh), data)
         self._reg(self._retranslate_line_combo)
+        apply_popup_style(self.cb_line)
         opt1.addWidget(self.cb_line)
+        lab = QtWidgets.QLabel(tr("解码"))
+        lab.setObjectName("secHint")
+        self._reg(lambda l=lab: l.setText(tr("解码")))
+        opt1.addWidget(lab)
+        self.cb_rx_enc = AnchoredCombo()
+        # (显示词条, 解码方式): 显示随语言变, 数据不变
+        self._rx_enc_opts = [("UTF-8", "utf-8"), ("GBK", "gbk"), ("转义", "escape")]
+        for zh, data in self._rx_enc_opts:
+            self.cb_rx_enc.addItem(tr(zh), data)
+        self._reg(self._retranslate_rx_enc_combo)
+        self.cb_rx_enc.currentIndexChanged.connect(lambda _: self._flush_rx_frame())
+        apply_popup_style(self.cb_rx_enc)
+        opt1.addWidget(self.cb_rx_enc)
+        lab = QtWidgets.QLabel(tr("超时时间"))
+        lab.setObjectName("secHint")
+        self._reg(lambda l=lab: l.setText(tr("超时时间")))
+        opt1.addWidget(lab)
+        self.edit_coalesce = QtWidgets.QLineEdit("150")
+        self.edit_coalesce.setFixedWidth(56)
+        self.edit_coalesce.setToolTip(tr("同一帧被拆成多包时, 静默此时间后合并为一行显示; 0=每包一行"))
+        self._reg(lambda: self.edit_coalesce.setToolTip(
+            tr("同一帧被拆成多包时, 静默此时间后合并为一行显示; 0=每包一行")))
+        self.edit_coalesce.textChanged.connect(self._on_coalesce_changed)
+        opt1.addWidget(self.edit_coalesce)
+        mslab = QtWidgets.QLabel("ms")
+        mslab.setObjectName("secHint")
+        opt1.addWidget(mslab)
         opt1.addStretch(1)
         lay.addLayout(opt1)
 
@@ -1303,6 +1436,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.engine.disconnect()
 
     def _on_conn_state(self, state):
+        self._flush_rx_frame()   # 断开/切状态时不再留半帧在缓冲里
         self.conn_state = state
         connected = state == "connected"
         self.btn_disconnect.setEnabled(state in ("connected", "connecting"))
@@ -1413,22 +1547,65 @@ class MainWindow(QtWidgets.QMainWindow):
         return tr(KNOWN_UUIDS.get(u, u))
 
     # ---------------- 收发显示 ----------------
+    def _coalesce_ms(self):
+        """超时时间(拼包静默间隙)毫秒数; 空/乱输入按 0(不拼包)处理"""
+        try:
+            v = int((self.edit_coalesce.text() or "").strip())
+        except ValueError:
+            return 0
+        return max(0, min(2000, v))
+
     def _on_rx(self, data, ts=None):
         self.rx_bytes += len(data)
         self.rx_packets += 1
-        text = format_bytes(data, self._mode())
-        self._append_line("[%s] RX: %s" % (self._ts(ts), text), "rx")
         self._status_dirty = True
+        gap = self._coalesce_ms()
+        if gap <= 0:
+            self._append_rx(data, ts)
+            return
+        if not self._rx_buf:
+            self._rx_buf_ts = ts if ts is not None else time.time()
+        self._rx_buf += data
+        now = ts if ts is not None else time.time()
+        # 静默窗口在每包后重开; 上限避免持续细流一直扣着不显示
+        if (len(self._rx_buf) >= RX_COALESCE_MAX_BYTES
+                or now - self._rx_buf_ts > RX_COALESCE_MAX_HOLD):
+            self._flush_rx_frame()
+        else:
+            self._t_rx_flush.start(gap)
+
+    def _append_rx(self, data, ts):
+        text = format_bytes(data, self._mode(), self._rx_encoding())
+        self._append_line("[%s] RX: %s" % (self._ts(ts), text), "rx")
+
+    def _flush_rx_frame(self):
+        """把拼包缓冲合并为一行显示(静默间隙到点/切换模式/断开/退出时调用)"""
+        self._t_rx_flush.stop()
+        if not self._rx_buf:
+            return
+        data, ts = bytes(self._rx_buf), self._rx_buf_ts
+        self._rx_buf.clear()
+        self._rx_buf_ts = None
+        self._append_rx(data, ts)
+
+    def _on_coalesce_changed(self, _text=None):
+        if self._coalesce_ms() <= 0:
+            self._flush_rx_frame()   # 关拼包时把已缓冲的帧放出来
 
     def _on_tx(self, data, ts=None):
         self.tx_bytes += len(data)
         if self.chk_echo.isChecked():
-            text = format_bytes(data, self._mode())
+            # 回显按发送编码解(与生成字节时一致), 避免发 GBK 时回显成转义
+            text = format_bytes(data, self._mode(),
+                                self.cb_encoding.currentText() or "utf-8")
             self._append_line("[%s] TX: %s" % (self._ts(ts), text), "tx")
         self._status_dirty = True
 
     def _mode(self):
         return self.seg_mode.value() or "ascii"
+
+    def _rx_encoding(self):
+        return self.cb_rx_enc.currentData() or "utf-8"
 
     def _append_line(self, line, tag):
         self.receive_lines.append(line)
@@ -1487,6 +1664,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_recv_hint()
 
     def _on_clear(self):
+        self._t_rx_flush.stop()
+        self._rx_buf.clear()
+        self._rx_buf_ts = None
         self.recv_text.clear()
         self.receive_lines.clear()
         self.recv_tags.clear()
@@ -1497,7 +1677,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._update_recv_hint()
 
     def _on_mode(self, _key):
-        pass  # 显示模式只影响新到数据(与既有行为一致)
+        self._flush_rx_frame()   # 切换显示模式时把缓冲中的帧放出来
 
     def _on_send(self):
         if self.conn_state != "connected":
@@ -1703,6 +1883,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.chk_scroll.setChecked(bool(cfg.get("auto_scroll", True)))
             self.seg_fmt.set_value(cfg.get("send_fmt", "ascii"))
             self.seg_mode.set_value(cfg.get("rx_mode", "ascii"))
+            idx = self.cb_rx_enc.findData(cfg.get("rx_encoding", "utf-8"))
+            if idx >= 0:
+                self.cb_rx_enc.blockSignals(True)   # 载入期勿触发拼包冲刷(定时器未建)
+                self.cb_rx_enc.setCurrentIndex(idx)
+                self.cb_rx_enc.blockSignals(False)
+            try:
+                ms = int(cfg.get("rx_coalesce_ms", 150))
+            except (TypeError, ValueError):
+                ms = 150
+            self.edit_coalesce.blockSignals(True)
+            self.edit_coalesce.setText(str(max(0, min(2000, ms))))
+            self.edit_coalesce.blockSignals(False)
             idx = self.cb_encoding.findText(cfg.get("send_encoding", "utf-8"))
             if idx >= 0:
                 self.cb_encoding.setCurrentIndex(idx)
@@ -1738,6 +1930,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "lang": self.lang_name,
             "char_prefs": self._char_prefs,
             "rx_mode": self.seg_mode.value() or "ascii",
+            "rx_encoding": self.cb_rx_enc.currentData() or "utf-8",
+            "rx_coalesce_ms": self._coalesce_ms(),
             "echo_tx": self.chk_echo.isChecked(),
             "auto_scroll": self.chk_scroll.isChecked(),
             "send_fmt": self.seg_fmt.value() or "ascii",
@@ -1759,6 +1953,7 @@ class MainWindow(QtWidgets.QMainWindow):
     # ---------------- 退出 ----------------
     def closeEvent(self, ev):
         self._shutting_down = True
+        self._flush_rx_frame()
         self._save_config()
         self._close_auto_log()
         self.engine.shutdown()

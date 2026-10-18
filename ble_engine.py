@@ -90,20 +90,87 @@ def build_data(cfg):
     return (text + line).encode("utf-8", errors="replace")
 
 
-def format_bytes(data, mode):
-    """把收到的字节流按显示模式转成文本"""
+def _escape_ctrl(text):
+    """控制字符转成可见转义, 避免显示成看不见的字符/方框乱码"""
+    out = []
+    for ch in text:
+        o = ord(ch)
+        if ch == "\r":
+            out.append("\\r")
+        elif ch == "\n":
+            out.append("\\n")
+        elif ch == "\t":
+            out.append("\\t")
+        elif o < 0x20 or o == 0x7F:
+            out.append("\\x%02X" % o)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _escape_bytes(data):
+    """整段按字节转义: 可打印 ASCII 原样, 其余 \\r \\n \\t \\xNN"""
+    out = []
+    for b in data:
+        if b == 0x0D:
+            out.append("\\r")
+        elif b == 0x0A:
+            out.append("\\n")
+        elif b == 0x09:
+            out.append("\\t")
+        elif 0x20 <= b <= 0x7E:
+            out.append(chr(b))
+        else:
+            out.append("\\x%02X" % b)
+    return "".join(out)
+
+
+def _decode_lenient(data, enc):
+    """按 enc 尽量解出文本段, 解不开的字节转 \\xNN 而不是替换符�"""
+    out = []
+    i, n = 0, len(data)
+    while i < n:
+        matched = 0
+        for ln in range(min(4, n - i), 0, -1):
+            try:
+                out.append(_escape_ctrl(data[i:i + ln].decode(enc)))
+                matched = ln
+                break
+            except (UnicodeDecodeError, LookupError):
+                continue
+        if matched:
+            i += matched
+        else:
+            out.append("\\x%02X" % data[i])
+            i += 1
+    return "".join(out)
+
+
+def _decode_display(data, encoding="utf-8"):
+    """字节流转可见文本: 按 encoding 解码, 控制字节与解不开的字节转 \\xNN"""
+    enc = (encoding or "utf-8").lower()
+    if enc in ("escape", "raw", "binary"):
+        return _escape_bytes(data)
+    try:
+        return _escape_ctrl(data.decode(enc))
+    except (UnicodeDecodeError, LookupError):
+        return _decode_lenient(data, enc)
+
+
+def format_bytes(data, mode, encoding="utf-8"):
+    """把收到的字节流按显示模式转成文本。
+
+    encoding: 文本解码编码(utf-8/gbk), 或 "escape" 整段字节转义;
+    控制字节与无法解码的字节一律显示为 \\r \\n \\t \\xNN, 不产生乱码。
+    """
     mode = (mode or "ascii").lower()
     if mode == "hex":
         return " ".join("%02X" % b for b in data)
+    text = _decode_display(data, encoding)
     if mode == "mixed":
         hex_part = " ".join("%02X" % b for b in data)
-        ascii_part = data.decode("utf-8", errors="replace")
-        ascii_part = ascii_part.replace("\r", "\\r").replace("\n", "\\n")
-        return "%s  |  %s" % (hex_part, ascii_part)
-    try:
-        return data.decode("utf-8")
-    except UnicodeDecodeError:
-        return data.decode("utf-8", errors="replace")
+        return "%s  |  %s" % (hex_part, text)
+    return text
 
 
 # ---------------------------------------------------------------------------

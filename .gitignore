@@ -11,6 +11,9 @@ dist/
 logs/
 ble_serial_config.json
 
+# 界面对比/评审截图(工具生成的临时产物, 不进仓库)
+_cmp*.png
+
 # 厂商资料包与大文件(不进仓库)
 HC-04-资料包/
 HC-04资料包20250813.zip

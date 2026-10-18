@@ -76,6 +76,11 @@ EN = {
     # ---- 右侧: 监视屏 ----
     "接收监视": "Monitor",
     "混合": "Mixed",
+    "解码": "Decode",
+    "转义": "Escapes",
+    "超时时间": "Timeout",
+    "同一帧被拆成多包时, 静默此时间后合并为一行显示; 0=每包一行":
+        "Packets arriving within this quiet gap are merged into one line; 0 = one line per packet",
     "自动滚动": "Auto Scroll",
     "回显发送": "Echo TX",
     "自动日志": "Auto Log",
