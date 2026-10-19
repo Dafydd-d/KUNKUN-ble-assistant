@@ -9,7 +9,7 @@ BLE 引擎(与界面框架无关, 可被 Qt/Tk 等复用)
 引擎在独立线程中运行 asyncio 事件循环(bleak), 通过线程安全的事件队列与界面通信:
     {"type": "device_found" / "services" / "uart_ready" / "rx" / "tx" /
              "log" / "error" / "conn_state" / "scan_state" /
-             "periodic_started" / "periodic_stopped"}
+             "periodic_started" / "periodic_stopped" / "chars_applied"}
 """
 
 import asyncio
@@ -535,6 +535,7 @@ class BleEngine:
         async def _apply():
             if self.client is None:
                 return
+            prev_w, prev_n = self.write_char, self.notify_char
             try:
                 if self.notify_char is not None:
                     try:
@@ -553,13 +554,39 @@ class BleEngine:
                 if self.notify_char is not None and "notify" in self.notify_char.properties:
                     await self.client.start_notify(self.notify_char, self._on_notify)
                 if self.write_char is None or self.notify_char is None:
+                    await self._revert_chars(prev_w, prev_n)
                     self.post({"type": "error", "text": tr("指定的特征无效")})
+                    self._post_chars_applied(False)
                     return
                 self.post({"type": "log", "tag": "info",
                            "text": tr("[特征] 已手动应用 写入=%s 通知=%s") % (write_uuid, notify_uuid)})
+                self._post_chars_applied(True)
             except Exception as e:
+                # 失败回到应用前的组合, 引擎与下拉都不停留在错误状态
+                await self._revert_chars(prev_w, prev_n)
                 self.post({"type": "error", "text": tr("应用特征失败: %s") % e})
+                self._post_chars_applied(False)
         self.submit(_apply())
+
+    async def _revert_chars(self, prev_w, prev_n):
+        # 失败组合可能已订上新通知, 先退掉再回退, 避免双重订阅
+        if self.notify_char is not None and self.notify_char is not prev_n:
+            try:
+                await self.client.stop_notify(self.notify_char)
+            except Exception:
+                pass
+        self.write_char, self.notify_char = prev_w, prev_n
+        if self.notify_char is not None and "notify" in self.notify_char.properties:
+            try:
+                await self.client.start_notify(self.notify_char, self._on_notify)
+            except Exception:
+                pass   # 回退重订失败不掩盖原始错误
+
+    def _post_chars_applied(self, ok):
+        """把手动应用的最终生效组合告知界面, 供下拉回显/失败回退。"""
+        self.post({"type": "chars_applied", "ok": ok,
+                   "write": str(self.write_char.uuid) if self.write_char else "",
+                   "notify": str(self.notify_char.uuid) if self.notify_char else ""})
 
     # ---------------- 断开 ----------------
     async def _disconnect(self):

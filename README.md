@@ -23,7 +23,7 @@ python ble_serial_assistant.py
 pyinstaller BLE串口助手.spec
 ```
 
-产物 `dist/坤坤蓝牙助手.exe`：单文件、无控制台、带图标（`app_icon.ico`），运行期把 `ble_serial_config.json` 与 `logs/` 生成在 exe 同目录。
+产物 `dist/坤坤蓝牙助手.exe`：单文件、无控制台、带图标（`assets/app_icon.ico`），运行期把 `ble_serial_config.json` 与 `logs/` 生成在 exe 同目录。
 
 ## 功能（按代码实现）
 
@@ -84,7 +84,7 @@ pyinstaller BLE串口助手.spec
 
 ### 界面与偏好
 - 双主题：**浅色「仪器工作台」/ 深色「电台面板」**，菜单【工具】热切换（不丢收发数据与设备列表），Win10/11 深色标题栏跟随主题（DWM API）
-- 下拉弹层锚定：展开时**当前选中项固定为首行**（其余选项按原序循环跟随），弹层左上角对齐框的左上角贴框向下展开，选项不出现在当前选择上方
+- 下拉弹层锚定：**列表顺序固定不变**，不随当前选择旋转（选中项停在原位高亮，同常见串口助手的波特率下拉），弹层贴框下沿向下展开、框内当前值始终可见，底部放不下时翻到框上方
 - 中文 / English 双语：菜单【工具 → 语言】切换，界面与引擎运行日志同步翻译
 - 配置记忆 `ble_serial_config.json`（自动生成，exe/脚本同目录），退出时保存：主题、语言、每设备特征偏好、收发格式/编码/行尾、显示模式、接收解码、超时时间、开关状态、定时周期、发送内容、8 条预设、窗口几何与最大化状态、自动日志开关
 
@@ -95,15 +95,15 @@ ble_serial_assistant.py   界面主程序 (PySide6, 约 1800 行)
 ble_engine.py             BLE 引擎: 扫描/连接/识别/收发/看门狗/定时发送
                           (asyncio 跑在独立线程, 事件队列回调与 UI 通信)
 i18n.py                   双语词条 (以中文为键, ctx 区分同文异义)
-tests/                    8 个无头回归测试 (offscreen, 无需蓝牙)
+tests/                    10 个无头回归测试 (offscreen, 无需蓝牙)
 启动.bat                   源码启动脚本
 BLE串口助手.spec            PyInstaller 配置 (onefile / windowed / icon)
 requirements.txt          bleak>=3.0, PySide6-Essentials>=6.6
-app_icon.ico / app_icon.png  应用图标资源
+assets/                 图片资源(图标 app_icon.*、下拉箭头 arrow_down*.png)
 ```
 
 引擎通过 `sink` 回调抛出的事件类型（供二次开发参考）：
-`device_found` / `services` / `uart_ready` / `rx` / `tx` / `log` / `error` / `conn_state` / `scan_state` / `periodic_started` / `periodic_stopped`。
+`device_found` / `services` / `uart_ready` / `rx` / `tx` / `log` / `error` / `conn_state` / `scan_state` / `periodic_started` / `periodic_stopped` / `chars_applied`。
 
 ## 测试
 
@@ -116,10 +116,12 @@ python tests/ble_chars_test.py
 | 文件 | 覆盖点 |
 | --- | --- |
 | `ble_chars_test.py` | 特征手动指定 → 记忆 → 重连套用 → 下拉变更自动应用 |
+| `ble_chars_sync_test.py` | 特征应用结果回显：成功跟随、失败回退到应用前组合 |
 | `ble_expire_test.py` | 设备 10 秒过期清理逻辑 |
 | `ble_format_test.py` | 收发显示格式化：控制字节/不可解字节转 `\xNN`、UTF-8/GBK 解码 |
 | `ble_coalesce_test.py` | 接收拼包：多包合并为一帧、0=不拼包、清空/切换/断开冲刷、上限阀门 |
-| `ble_combo_test.py` | 下拉锚定：当前项转首行、弹层对齐框左上角、旋转不丢条目 |
+| `ble_combo_test.py` | 下拉锚定：列表顺序固定不随选择变化、弹层贴框下沿不遮门脸、查值不丢条目 |
+| `ble_combo_style_test.py` | 下拉弹层样式：选中行指示胶囊/槽底、机器词条等宽字、深浅主题换色 |
 | `ble_i18n_test.py` | 双语切换与词条回退 |
 | `ble_pill_select_test.py` | 状态灯 / 设备选中联动 |
 | `ble_rssi_test.py` | RSSI 分格与 ±127 占位符过滤 |

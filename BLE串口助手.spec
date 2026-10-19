@@ -5,8 +5,8 @@ a = Analysis(
     ['ble_serial_assistant.py'],
     pathex=[],
     binaries=[],
-    datas=[('app_icon.ico', '.'), ('app_icon.png', '.'),
-           ('arrow_down.png', '.'), ('arrow_down_dark.png', '.')],
+    datas=[('assets/app_icon.ico', 'assets'), ('assets/app_icon.png', 'assets'),
+           ('assets/arrow_down.png', 'assets'), ('assets/arrow_down_dark.png', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -37,5 +37,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['app_icon.ico'],
+    icon=['assets/app_icon.ico'],
 )

@@ -41,8 +41,9 @@ LOG_DIR = os.path.join(BASE_DIR, "logs")
 
 
 def resource_path(name):
+    """图片等打包资源统一放 assets/ 目录; 源码运行与 exe 解包后同构加载。"""
     bundle_dir = getattr(sys, "_MEIPASS", BASE_DIR)
-    return os.path.join(bundle_dir, name)
+    return os.path.join(bundle_dir, "assets", name)
 
 
 def ui_font(size=10):
@@ -107,7 +108,7 @@ THEMES = {
         "INK": "#ECE7D9", "BG": "#23272C", "PANEL": "#1A1D21", "FG": "#C9C4B6",
         "ACCENT": "#E8B33A", "ACCENT_D": "#D19E2E", "SEL_FG": "#1A1D21",
         "MUTED": "#9A927F", "BORDER": "#3A3F46", "ARROW": "arrow_down_dark.png",
-        "POPUP_SEL_BG": "#2E4A57", "POPUP_SEL_FG": "#ECE7D9",
+        "POPUP_SEL_BG": "#473E27", "POPUP_SEL_FG": "#ECE7D9",
         "BTN_BG": "#3A3F46", "BTN_BG_HOVER": "#4A5058",
         "BTN_DIS_BG": "#2F343A", "BTN_DIS_FG": "#6A6458",
         "SEG_REST_BG": "#2A2E34", "SEG_REST_FG": "#B0A894",
@@ -175,18 +176,22 @@ QLineEdit, QPlainTextEdit#sendText, QTextEdit#sendText {{
     background: {PANEL}; color: {FG}; border: 1px solid {BORDER};
     border-radius: 3px; padding: 3px 6px; selection-background-color: {ACCENT};
     selection-color: {SEL_FG}; }}
-/* 下拉都是非编辑型, selection-* 只作用于弹出列表的选中行(浅色高亮);
-   注意: 此处纵向 padding 会泄漏进弹层容器几何(顶出白条), 只能给 1px */
+/* 下拉都是非编辑型; 弹层条目由 PopupItemDelegate 自绘(指示胶囊/槽底/双字体),
+   selection-* 只是后备。注意: 框上纵向 padding 会泄漏进弹层容器几何(顶出白条),
+   只能给 1px */
 QComboBox {{
     background: {PANEL}; color: {FG}; border: 1px solid {BORDER};
     border-radius: 3px; padding: 1px 6px;
     selection-background-color: {POPUP_SEL_BG}; selection-color: {POPUP_SEL_FG}; }}
 QLineEdit:focus, QComboBox:focus, QTextEdit#sendText:focus {{ border: 1px solid {ACCENT}; }}
-QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox:on, QComboBox:pressed {{ border: 1px solid {ACCENT}; }}
+/* 箭头区做成独立"键帽": 与词条区隔一道发丝线 */
+QComboBox::drop-down {{ border: none; border-left: 1px solid {BORDER}; width: 22px; }}
 QComboBox::down-arrow {{ image: url({ARROW}); width: 10px; height: 7px; }}
 QComboBox QAbstractItemView {{ background: {PANEL}; color: {FG};
-                               border: 1px solid {BORDER}; outline: none;
-                               selection-background-color: {POPUP_SEL_BG};
+                               border: 1px solid {BORDER}; border-radius: 4px;
+                               outline: none;
+                               selection-background-color: transparent;
                                selection-color: {POPUP_SEL_FG}; }}
 /* 弹层外层容器自带双线边框/空隙, 去掉让列表像系统下拉一样干净 */
 QComboBoxPrivateContainer {{ border: none; background: {PANEL}; margin: 0; padding: 0; }}
@@ -270,62 +275,109 @@ QToolTip {{ background: {PANEL}; color: {FG}; border: 1px solid {BORDER}; }}
 # 小部件
 # ---------------------------------------------------------------------------
 class AnchoredCombo(QtWidgets.QComboBox):
-    """下拉弹层锚定: 当前选中项永远是列表首行, 列表贴框向下展开。
+    """下拉弹层锚定: 列表顺序固定不变, 弹层贴框下沿向下展开。
 
-    选项不出现在当前选择的上方——打开时把当前项转到首行
-    (其余选项按原序循环跟随), 弹层左上角对齐到框的左上角。"""
+    选项顺序永远保持插入序, 不随当前选择变化——选中项停在原位高亮
+    (与常见串口助手的波特率下拉一致), 选哪项、开多少次弹层列表都
+    长一个样; 弹层左上角对齐框的左下角, 门脸(框内当前值)始终可见,
+    底部放不下时翻到框上方。
+    门脸字随词条走: 机器词条等宽, 人话界面字(与弹层同一条规则)。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.currentTextChanged.connect(self._sync_face_font)
+
+    def _sync_face_font(self, *_):
+        self.setFont(PopupItemDelegate._font(self.currentText()))
+        self.updateGeometry()
 
     def showPopup(self):
-        self._move_current_to_top()
         super().showPopup()
         cont = self.view().parentWidget()
-        if cont is not None:
-            cont.move(self.mapToGlobal(QtCore.QPoint(0, 0)))
-
-    def _move_current_to_top(self):
-        idx, n = self.currentIndex(), self.count()
-        if idx <= 0 or n <= 1:
+        if cont is None:
             return
-        items = [(self.itemText(i), self.itemData(i)) for i in range(n)]
-        self.blockSignals(True)
-        try:
-            self.clear()
-            for text, data in items[idx:] + items[:idx]:
-                self.addItem(text, data)
-            self.setCurrentIndex(0)
-        finally:
-            self.blockSignals(False)
+        # 贴框下沿向下展开, 不遮挡门脸; 屏幕底部放不下时翻到框上方
+        face_top = self.mapToGlobal(QtCore.QPoint(0, 0))
+        top_left = QtCore.QPoint(face_top.x(), face_top.y() + self.height())
+        screen = (QtGui.QGuiApplication.screenAt(top_left)
+                  or QtGui.QGuiApplication.primaryScreen())
+        if (screen is not None and
+                (top_left.y() + cont.height()) > screen.availableGeometry().bottom()):
+            top_left.setY(face_top.y() - cont.height())
+        cont.move(top_left)
 
 
 class PopupItemDelegate(QtWidgets.QStyledItemDelegate):
-    """下拉弹层条目: 8pt 小字号 + 紧凑行高, 贴近系统下拉列表观感。
+    """下拉弹层条目: 「通道指示灯」式选中态 + 机器词条/人话双字体。
 
-    条目级 QSS(::item)在当前 Qt 上不生效, 行高/字号只能在委托里控制。"""
+    选中行画圆角浅槽底, 槽左缘一枚点亮的 ACCENT 指示胶囊(电台面板的
+    通道灯语汇); 文字统一缩进成列。转义符/编码名/UUID 等 ASCII 机器词条
+    用等宽字, 自然语词用界面字。条目级 QSS(::item)在当前 Qt 上不生效,
+    行高/字号/选中样式只能在委托里画; 主题热切换后重绘即取新色。"""
+
+    ROW_H = 26
+    TEXT_X = 14          # 文字列缩进: 指示槽右侧, 选中/未选中同列
+
+    def __init__(self, parent=None, tok=None):
+        super().__init__(parent)
+        self._tok = tok   # () -> 当前主题令牌
+
+    def _tokens(self):
+        return self._tok() if self._tok else {}
 
     @staticmethod
-    def _font(option):
-        f = QtGui.QFont(option.font)
-        f.setPointSize(8)
-        return f
+    def _font(text):
+        return mono_font(9) if str(text).isascii() else ui_font(9)
 
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
         option.displayAlignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter
-        option.font = self._font(option)
+        option.font = self._font(index.data(QtCore.Qt.DisplayRole))
 
     def sizeHint(self, option, index):
-        s = super().sizeHint(option, index)
-        s.setHeight(max(22, QtGui.QFontMetrics(self._font(option)).height() + 6))
-        return s
+        text = str(index.data(QtCore.Qt.DisplayRole) or "")
+        fm = QtGui.QFontMetrics(self._font(text))
+        return QtCore.QSize(fm.horizontalAdvance(text) + self.TEXT_X + 12, self.ROW_H)
+
+    def paint(self, painter, option, index):
+        opt = QtWidgets.QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        t = self._tokens()
+        rect = opt.rect
+        selected = bool(opt.state & QtWidgets.QStyle.State_Selected)
+        hovered = bool(opt.state & QtWidgets.QStyle.State_MouseOver)
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        if selected or hovered:
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(QtGui.QColor(t.get("POPUP_SEL_BG", "#CFE6EE")))
+            painter.drawRoundedRect(
+                QtCore.QRectF(rect.adjusted(3, 2, -3, -2)), 3, 3)
+            if selected:
+                painter.setBrush(QtGui.QColor(t.get("ACCENT", "#0E7490")))
+                painter.drawRoundedRect(
+                    QtCore.QRectF(rect.left() + 5, rect.center().y() - 6, 3, 12),
+                    1.5, 1.5)
+        text = str(index.data(QtCore.Qt.DisplayRole) or "")
+        text_rect = rect.adjusted(self.TEXT_X, 0, -10, 0)
+        fm = QtGui.QFontMetrics(opt.font)
+        elided = fm.elidedText(text, QtCore.Qt.ElideRight, text_rect.width())
+        painter.setFont(opt.font)
+        painter.setPen(QtGui.QColor(
+            t.get("POPUP_SEL_FG", "#14314B") if selected else t.get("FG", "#1F2937")))
+        painter.drawText(text_rect, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, elided)
+        painter.restore()
 
 
-def apply_popup_style(cb):
-    cb.setItemDelegate(PopupItemDelegate(cb))
+def apply_popup_style(cb, tok=None):
+    cb.setItemDelegate(PopupItemDelegate(cb, tok))
     view = cb.view()
     view.setUniformItemSizes(True)
     f = QtGui.QFont(view.font())
-    f.setPointSize(8)
+    f.setPointSize(9)
     view.setFont(f)
+    # 视口不铺底色, 让弹层的圆角卡片背景(QSS)透出来, 四角不被方块盖住
+    view.viewport().setAutoFillBackground(False)
     # 弹层外层容器自带双线边框和空隙(QSS 改不动), 直接清掉
     cont = view.parentWidget()
     if isinstance(cont, QtWidgets.QFrame):
@@ -956,7 +1008,7 @@ class MainWindow(QtWidgets.QMainWindow):
             row.addWidget(lab)
             cb = AnchoredCombo()
             cb.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            apply_popup_style(cb)
+            apply_popup_style(cb, lambda: self.tok)
             row.addWidget(cb)
             return row, cb
 
@@ -1107,7 +1159,7 @@ class MainWindow(QtWidgets.QMainWindow):
         opt1.addWidget(lab)
         self.cb_encoding = AnchoredCombo()
         self.cb_encoding.addItems(["utf-8", "gbk"])
-        apply_popup_style(self.cb_encoding)
+        apply_popup_style(self.cb_encoding, lambda: self.tok)
         opt1.addWidget(self.cb_encoding)
         lab = QtWidgets.QLabel(tr("行尾"))
         lab.setObjectName("secHint")
@@ -1119,7 +1171,7 @@ class MainWindow(QtWidgets.QMainWindow):
         for zh, data in self._line_opts:
             self.cb_line.addItem(tr(zh), data)
         self._reg(self._retranslate_line_combo)
-        apply_popup_style(self.cb_line)
+        apply_popup_style(self.cb_line, lambda: self.tok)
         opt1.addWidget(self.cb_line)
         lab = QtWidgets.QLabel(tr("解码"))
         lab.setObjectName("secHint")
@@ -1132,7 +1184,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.cb_rx_enc.addItem(tr(zh), data)
         self._reg(self._retranslate_rx_enc_combo)
         self.cb_rx_enc.currentIndexChanged.connect(lambda _: self._flush_rx_frame())
-        apply_popup_style(self.cb_rx_enc)
+        apply_popup_style(self.cb_rx_enc, lambda: self.tok)
         opt1.addWidget(self.cb_rx_enc)
         lab = QtWidgets.QLabel(tr("超时时间"))
         lab.setObjectName("secHint")
@@ -1328,6 +1380,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self._on_services(ev["services"])
         elif t == "uart_ready":
             self._on_uart_ready(ev)
+        elif t == "chars_applied":
+            self._on_chars_applied(ev)
         elif t == "rx":
             self._on_rx(ev["data"], ev.get("ts"))
         elif t == "tx":
@@ -1520,6 +1574,30 @@ class MainWindow(QtWidgets.QMainWindow):
         if use_prefs:
             # 引擎按自动识别订阅的是另一组特征, 切到记忆的组合并重订通知
             self.engine.apply_chars(pw, pn)
+
+    def _on_chars_applied(self, ev):
+        """手动应用特征的结果回显: 下拉始终显示引擎真实生效的组合。
+
+        成功=回显, 失败=跟引擎一起回到应用前的组合(与串口助手波特率
+        下拉同一套显示逻辑), 避免界面停留在没生效的选择上。"""
+        if self.conn_state != "connected":
+            return
+        w_uuid = (ev.get("write") or "").lower()
+        n_uuid = (ev.get("notify") or "").lower()
+        wi = self.cb_write.findData(w_uuid) if w_uuid else -1
+        ni = self.cb_notify.findData(n_uuid) if n_uuid else -1
+        if wi < 0 and ni < 0:
+            return   # 引擎已无可用特征(如连接刚断), 保留界面选择待重连覆盖
+        self.cb_write.blockSignals(True)
+        self.cb_notify.blockSignals(True)
+        try:
+            if wi >= 0:
+                self.cb_write.setCurrentIndex(wi)
+            if ni >= 0:
+                self.cb_notify.setCurrentIndex(ni)
+        finally:
+            self.cb_write.blockSignals(False)
+            self.cb_notify.blockSignals(False)
 
     def _on_apply_chars(self):
         if self.conn_state != "connected":
