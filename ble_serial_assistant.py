@@ -30,7 +30,8 @@ from ble_engine import BleEngine, build_data, format_bytes, KNOWN_UUIDS
 from i18n import tr, get_lang, set_lang
 
 APP_NAME = "坤坤蓝牙助手"
-APP_VERSION = "1.1"
+APP_VERSION = "1.1.1"
+GITHUB_URL = "https://github.com/Dafydd-d/KUNKUN-ble-assistant"
 
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
@@ -1309,6 +1310,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._reg(lambda: m_help.setTitle(tr("帮助")))
         act = m_help.addAction(tr("使用说明"), self._show_help)
         self._reg(lambda a=act: a.setText(tr("使用说明")))
+        act = m_help.addAction(tr("更新历史"), self._show_history)
+        self._reg(lambda a=act: a.setText(tr("更新历史")))
         act = m_help.addAction(tr("关于"), self._show_about)
         self._reg(lambda a=act: a.setText(tr("关于")))
 
@@ -1934,12 +1937,44 @@ class MainWindow(QtWidgets.QMainWindow):
                " - 菜单【工具】可切换浅色/深色主题\n"
                " - 详细说明见同目录 使用说明.md"))
 
+    def _show_history(self):
+        QtWidgets.QMessageBox.information(
+            self, tr("更新历史"),
+            tr("V1.1.1 (2026.10.19)\n"
+               "- 修正下拉功能: 列表顺序固定, 弹层贴框下沿展开不遮挡门脸\n"
+               "- 特征下拉应用失败自动回退\n"
+               "- 新增解码选择与超时时间拼包显示\n"
+               "- 图片资源归入 assets/ 目录\n\n"
+               "V1.1 (2026.10.17)\n"
+               "- 第一版"))
+
     def _show_about(self):
-        QtWidgets.QMessageBox.about(
-            self, tr("关于"),
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle(tr("关于"))
+        lay = QtWidgets.QVBoxLayout(dlg)
+        lay.setSpacing(10)
+        info = QtWidgets.QLabel(
             tr("%s V%s\n\n电脑BLE ↔ 模块 ↔ MCU 无线串口调试工具\n"
                "自动识别 HC-04/HM-10/NUS 等常见透传服务\n"
                "界面: PySide6(Qt)   通信: bleak") % (APP_NAME, APP_VERSION))
+        info.setFont(ui_font(10))
+        lay.addWidget(info)
+        # GitHub 链接: openExternalLinks 交给系统浏览器打开仓库
+        link = QtWidgets.QLabel(
+            'GitHub: <a style="color:%s" href="%s">%s</a>'
+            % (self.tok.get("ACCENT", "#0E7490"), GITHUB_URL, GITHUB_URL))
+        link.setTextFormat(QtCore.Qt.RichText)
+        link.setOpenExternalLinks(True)
+        link.setFont(ui_font(10))
+        lay.addWidget(link)
+        btns = QtWidgets.QHBoxLayout()
+        btns.addStretch(1)
+        ok = QtWidgets.QPushButton(tr("确定"))
+        ok.setCursor(QtCore.Qt.PointingHandCursor)
+        ok.clicked.connect(dlg.accept)
+        btns.addWidget(ok)
+        lay.addLayout(btns)
+        dlg.exec()
 
     # ---------------- 配置持久化 ----------------
     def _peek_config(self):

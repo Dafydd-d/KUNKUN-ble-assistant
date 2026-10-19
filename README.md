@@ -124,6 +124,7 @@ python tests/ble_chars_test.py
 | `ble_combo_style_test.py` | 下拉弹层样式：选中行指示胶囊/槽底、机器词条等宽字、深浅主题换色 |
 | `ble_i18n_test.py` | 双语切换与词条回退 |
 | `ble_pill_select_test.py` | 状态灯 / 设备选中联动 |
+| `ble_history_about_test.py` | 帮助菜单：更新历史内容、关于的 GitHub 链接可点击 |
 | `ble_rssi_test.py` | RSSI 分格与 ±127 占位符过滤 |
 
 ## 依赖
@@ -132,3 +133,12 @@ python tests/ble_chars_test.py
 | --- | --- |
 | [PySide6-Essentials](https://doc.qt.io/qtforpython/) | 界面 |
 | [bleak](https://github.com/hbldh/bleak) | BLE 扫描/连接/GATT 收发 |
+
+## 版本
+
+当前版本 V1.1.1，完整更新记录见软件内「更新历史」（帮助菜单）或下表。
+
+| 版本 | 日期 | 更新内容 |
+| --- | --- | --- |
+| V1.1.1 | 2026.10.19 | 修正下拉功能：列表顺序固定不随选择变化，选中项原位高亮；弹层贴框下沿向下展开不遮挡门脸，屏幕底部放不下自动上翻；特征下拉与引擎真实状态同步，应用失败自动回退；图片资源归入 `assets/` 目录。<br>新增：接收区「解码」选择与「超时时间」拼包显示（拆包合并为一行，0=每包一行）；下拉弹层选中指示样式；拼包/下拉/特征同步回归测试。 |
+| V1.1 | 2026.10.17 | 初版：BLE 持续自动扫描/连接断开、透传服务自动识别（HC-04/HM-10、NUS、ISSC、自定义 UUID）、ASCII/HEX/混合收发显示、定时发送、8 槽预设命令、中英双语、浅色/深色双主题、配置记忆、无头回归测试与使用说明。 |

@@ -37,7 +37,9 @@ EN = {
     "语言": "Language",
     "帮助": "Help",
     "使用说明": "User Guide",
+    "更新历史": "Update History",
     "关于": "About",
+    "确定": "OK",
 
     # ---- 顶部状态灯 ----
     "未连接": "Not Connected",
@@ -146,6 +148,20 @@ EN = {
         "%s V%s\n\nPC BLE ↔ Module ↔ MCU wireless serial debug tool\n"
         "Auto-detects common transparent services (HC-04/HM-10/NUS, ...)\n"
         "UI: PySide6(Qt)   Comm: bleak",
+    "V1.1.1 (2026.10.19)\n"
+    "- 修正下拉功能: 列表顺序固定, 弹层贴框下沿展开不遮挡门脸\n"
+    "- 特征下拉应用失败自动回退\n"
+    "- 新增解码选择与超时时间拼包显示\n"
+    "- 图片资源归入 assets/ 目录\n\n"
+    "V1.1 (2026.10.17)\n"
+    "- 第一版":
+        "V1.1.1 (2026.10.19)\n"
+        "- Dropdown fix: fixed list order; popup opens below without covering the box\n"
+        "- Characteristic dropdown auto-rolls back when apply fails\n"
+        "- Decode option and timeout coalescing display\n"
+        "- Image assets moved into assets/\n\n"
+        "V1.1 (2026.10.17)\n"
+        "- First release",
 
     # ---- 顶栏复制标签 ----
     "点击拖动选中文字后 Ctrl+C 复制；双击一键复制；右键更多选项":
